@@ -2,25 +2,27 @@
 #include <SPIFFS.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
+// #include "credentials.h"
 
 // INMP 441 Connection ports
-// #define I2S_SD GPIO_NUM_13
-// #define I2S_WS GPIO_NUM_15
-// #define I2S_SCK GPIO_NUM_2
-#define I2S_SD 13
-#define I2S_WS 15
-#define I2S_SCK 2
+#define I2S_SD GPIO_NUM_13
+#define I2S_WS GPIO_NUM_15
+#define I2S_SCK GPIO_NUM_2
+#define wifi_state_led GPIO_NUM_27  // Wifi status LED
+
+#define THRESHOLD 40           // Greater the value, more the sensitivity on the wake-up Pin       
+#define customDelay(ms) vTaskDelay(pdMS_TO_TICKS(ms)) // Macros TICKS to ms
 
 #define I2S_PORT I2S_NUM_0
 #define I2S_SAMPLE_RATE (16000)
 #define I2S_SAMPLE_BITS (16)
 #define I2S_READ_LEN (16 * 1024)
-#define RECORD_TIME (10) // Seconds
+#define RECORD_TIME (5) // Seconds
 #define I2S_CHANNEL_NUM (1)
 #define FLASH_RECORD_SIZE (I2S_CHANNEL_NUM * I2S_SAMPLE_RATE * I2S_SAMPLE_BITS / 8 * RECORD_TIME)
 
-#define WIFI_SSID "x"
-#define WIFI_PASSWORD "x"
+#define WIFI_SSID "Vodafone-62BC"
+#define WIFI_PASSWORD "MxhK4rERTtKyGcqP"
 
 // func prototypes
 void SPIFFSInit();
@@ -31,6 +33,8 @@ void i2s_adc_data_scale(uint8_t *d_buff, uint8_t *s_buff, uint32_t len);
 void i2s_adc(void *arg);
 void uploadFile();
 void wifiConnect(void *pvParameters);
+void print_wakeup_touchpad();
+void start_deep_sleep();
 
 File file;
 const char filename[] = "/recording.wav";
@@ -41,14 +45,15 @@ void setup()
 {
   // put your setup code here, to run once:
   Serial.begin(115200);
-  log_i("Total heap: %u", ESP.getHeapSize());
-  log_i("Free heap: %u", ESP.getFreeHeap());
-  log_i("Total PSRAM: %u", ESP.getPsramSize());
-  log_i("Free PSRAM: %d", ESP.getFreePsram());
-  log_i("spiram size %u", esp_spiram_get_size());
-  log_i("himem free %u", esp_himem_get_free_size());
-  log_i("himem phys %u", esp_himem_get_phys_size());
-  log_i("himem reserved %u", esp_himem_reserved_area_size());
+
+  // Led indication setup
+  pinMode(wifi_state_led, OUTPUT);
+  digitalWrite(wifi_state_led, 0); // wifi status LED make sure it's 0
+
+  // Wake up settings
+  print_wakeup_touchpad(); // wake-up reason (info)
+  touchSleepWakeUpEnable(T0, THRESHOLD); // Setup sleep, wakeup on Touch Pad 3 (GPIO15)
+
   SPIFFSInit();
   i2sInit();
   xTaskCreate(i2s_adc, "i2s_adc", 4096, NULL, 1, NULL); // 1024 * 2
@@ -287,6 +292,7 @@ void listSPIFFS(void)
 void wifiConnect(void *pvParameters)
 {
   isWIFIConnected = false;
+  digitalWrite(wifi_state_led, 0);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   while (WiFi.status() != WL_CONNECTED)
   {
@@ -294,6 +300,7 @@ void wifiConnect(void *pvParameters)
     Serial.print(".");
   }
   isWIFIConnected = true;
+  digitalWrite(wifi_state_led, 1);
   while (true)
   {
     vTaskDelay(1000);
@@ -331,4 +338,26 @@ void uploadFile()
   }
   file.close();
   client.end();
+  start_deep_sleep();
+}
+
+void print_wakeup_touchpad()
+{
+  touch_pad_t touchPin = esp_sleep_get_touchpad_wakeup_status();
+  if (touchPin == 3)
+  {
+    Serial.println("Wakeup caused by touchpad on GPIO 15");
+  }
+  else
+  {
+    Serial.println("Wakeup not by touchpad");
+  }
+}
+
+void start_deep_sleep()
+{
+  Serial.println("");
+  Serial.println("Going to sleep now");
+  customDelay(500);
+  esp_deep_sleep_start();
 }
